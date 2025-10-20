@@ -1,0 +1,139 @@
+﻿@page "/"
+@using System.Threading
+@using MudBlazor
+@using MonoTorrent
+@using InterSoftwares.Torrent.Models
+@using InterSoftwares.Torrent.Platforms.Windows
+@using InterSoftwares.Torrent.Services
+@inject ITorrentEngineService Engine
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+<MudStack Spacing="2">
+    <MudPaper Elevation="0" Class="pa-3 d-flex justify-end">
+        <MudButton Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Add" Color="Color.Primary" OnClick="AddTorrent">
+            Добави торент…
+        </MudButton>
+    </MudPaper>
+
+    <MudPaper Class="pa-3" Elevation="0">
+        <MudTable Items="_items" Dense="true" Hover="true" Breakpoint="Breakpoint.Xs">
+            <HeaderContent>
+                <MudTh>Име</MudTh>
+                <MudTh Style="width:120px">Прогрес</MudTh>
+                <MudTh Style="width:140px">Сваляне</MudTh>
+                <MudTh Style="width:140px">Качване</MudTh>
+                <MudTh Style="width:150px">Downloaded</MudTh>
+                <MudTh Style="width:150px">Uploaded</MudTh>
+                <MudTh Style="width:120px">Статус</MudTh>
+                <MudTh Style="min-width:205px; width: 205px">Действия</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Name</MudTd>
+                <MudTd>
+                    <div class="d-flex align-center">
+                        <MudProgressLinear Rounded Size="MudBlazor.Size.Medium" Color="Color.Primary" Striped="@(context.Progress == 100 ? false : true)" Value="@context.Progress" Style="width:110px" />
+                        <MudText Typo="Typo.caption" Class="ml-2">@($"{context.Progress:0}%")</MudText>
+                    </div>
+                </MudTd>
+                <MudTd>@Rate(context.DownSpeed)</MudTd>
+                <MudTd>@Rate(context.UpSpeed)</MudTd>
+                <MudTd>@Size(context.Downloaded)</MudTd>
+                <MudTd>@Size(context.Uploaded)</MudTd>
+                <MudTd>@context.Status</MudTd>
+                <MudTd>
+                    <MudIconButton Class="pa-2" Icon="@Icons.Material.Filled.PlayArrow" Disabled="@(!context.Paused)" OnClick="@(() => Resume(context))" />
+                    <MudIconButton Class="pa-2" Icon="@Icons.Material.Filled.Pause" Disabled="@(context.Paused)" OnClick="@(() => Pause(context))" />
+                    <MudIconButton Class="pa-2" Icon="@Icons.Material.Filled.Stop" Disabled="@(context.Status == "Stopped")" OnClick="@(() => Stop(context))" />
+                    @*<MudIconButton Icon="@Icons.Material.Filled.EditNote" OnClick="@(()=> EditFiles(context))" />*@
+                    <MudIconButton Class="pa-2" Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(() => Remove(context))" />
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent>
+                <MudText Class="pa-4">Няма елементи.</MudText>
+            </NoRecordsContent>
+        </MudTable>
+    </MudPaper>
+</MudStack>
+
+@code {
+    private List<TorrentItemDto> _items = new();
+    private PeriodicTimer? _uiTimer;
+    private CancellationTokenSource? _cts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Engine.InitializeAsync();
+        Refresh();
+
+        _cts = new CancellationTokenSource();
+        _uiTimer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (await _uiTimer.WaitForNextTickAsync(_cts.Token))
+                {
+                    await InvokeAsync(Refresh);
+                }
+            }
+            catch (OperationCanceledException) { }
+        });
+    }
+
+    private void Refresh()
+    {
+        _items = Engine.Items.OrderBy(i => i.Name).ToList();
+        StateHasChanged();
+    }
+
+    private async Task EditFiles(TorrentItemDto dto)
+    {
+        var opts = new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Large, FullWidth = true };
+        var prms = new DialogParameters { ["InfoHash"] = dto.InfoHash };
+
+        var result = await Dialogs.Show<Components.EditFilesDialog>("Файлове", prms, opts).Result;
+    }
+
+    private async Task AddTorrent()
+    {
+        var torrentPath = await WinPickers.PickTorrentAsync();
+        if (string.IsNullOrWhiteSpace(torrentPath)) return;
+
+        var torrent = await Torrent.LoadAsync(torrentPath);
+        var result = await Dialogs.Show<Components.SelectFilesDialog>("Файлове",
+            new DialogParameters { { nameof(Components.SelectFilesDialog.Torrent), torrent } },
+            new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Large }).Result;
+
+        if (result.Canceled) return;
+        var selection = (IList<FileSelection>)result.Data!;
+
+        var savePath = await WinPickers.PickFolderAsync();
+        if (string.IsNullOrWhiteSpace(savePath)) return;
+
+        var item = await Engine.AddTorrentAsync(torrentPath, savePath!, selection);
+        Snackbar.Add($"Добавен: {item.Name}", Severity.Success);
+        Refresh();
+    }
+
+    private async Task Pause(TorrentItemDto dto) { await Engine.PauseAsync(dto.InfoHash); Refresh(); }
+    private async Task Resume(TorrentItemDto dto) { await Engine.ResumeAsync(dto.InfoHash); Refresh(); }
+    private async Task Stop(TorrentItemDto dto) { await Engine.StopAsync(dto.InfoHash); }
+    private async Task Remove(TorrentItemDto dto) { await Engine.RemoveAsync(dto.InfoHash); Refresh(); }
+
+    private static string Size(long b)
+    {
+        string[] u = { "B", "KB", "MB", "GB", "TB" }; double s = b; int i = 0;
+        while (s >= 1024 && i < u.Length - 1) { s /= 1024; i++; }
+        return $"{s:0.##} {u[i]}";
+    }
+    private static string Rate(double bps) => $"{Size((long)bps)}/s";
+
+    public void Dispose()
+    {
+        try { _cts?.Cancel(); } catch { }
+        _uiTimer?.Dispose();
+        _cts?.Dispose();
+    }
+}

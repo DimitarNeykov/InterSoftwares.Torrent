@@ -1,0 +1,95 @@
+﻿@using MudBlazor
+@using MonoTorrent
+@using MonoTorrent.Client
+
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.h6">Избери файлове за сваляне</MudText>
+
+        <MudTable Items="_files" Dense="true">
+            <HeaderContent>
+                <MudTh style="width:48px"></MudTh>
+                <MudTh>Файл</MudTh>
+                <MudTh style="width:120px">Размер</MudTh>
+                <MudTh style="width:140px">Приоритет</MudTh>
+            </HeaderContent>
+
+            <RowTemplate>
+                <MudTd>
+                    <MudCheckBox @bind-Value="context.Download" />
+                </MudTd>
+
+                <MudTd>@context.Path</MudTd>
+
+                <MudTd>@FormatSize(context.Length)</MudTd>
+
+                <MudTd>
+                    <MudSelect T="Priority" @bind-Value="context.Priority" Dense="true">
+                        <MudSelectItem Value="Priority.DoNotDownload">Skip</MudSelectItem>
+                        <MudSelectItem Value="Priority.Low">Low</MudSelectItem>
+                        <MudSelectItem Value="Priority.Normal">Normal</MudSelectItem>
+                        <MudSelectItem Value="Priority.High">High</MudSelectItem>
+                    </MudSelect>
+                </MudTd>
+            </RowTemplate>
+
+            <NoRecordsContent>
+                <MudText Class="pa-4">Няма файлове.</MudText>
+            </NoRecordsContent>
+        </MudTable>
+    </DialogContent>
+
+    <DialogActions>
+        <MudButton Color="Color.Primary" OnClick="Submit">Добави</MudButton>
+        <MudButton OnClick="Cancel">Откажи</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public required Torrent Torrent { get; set; }
+
+    private sealed class FileRow
+    {
+        public string Path { get; set; } = "";
+        public long Length { get; set; }
+        public bool Download { get; set; } = true;
+        public Priority Priority { get; set; } = Priority.Normal;
+    }
+
+    private List<FileRow> _files = new();
+
+    protected override void OnInitialized()
+    {
+        _files = Torrent.Files.Select(f => new FileRow
+        {
+            Path = f.Path,
+            Length = (long)f.Length,
+            Download = true,
+            Priority = Priority.Normal
+        }).ToList();
+    }
+
+    private void Submit()
+    {
+        var selections = _files.Select(f => new Services.FileSelection
+        {
+            Path = f.Path,
+            Download = f.Download,
+            Priority = f.Priority
+        }).ToList();
+
+        MudDialog.Close(DialogResult.Ok(selections));
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private static string FormatSize(long bytes)
+    {
+        string[] units = { "B", "KB", "MB", "GB", "TB" };
+        double size = bytes; int unit = 0;
+        while (size >= 1024 && unit < units.Length - 1) { size /= 1024; unit++; }
+        return $"{size:0.#} {units[unit]}";
+    }
+}

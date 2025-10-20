@@ -1,0 +1,93 @@
+﻿@using MudBlazor
+@using MonoTorrent
+@using InterSoftwares.Torrent.Services
+
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.h6">Избери/промени файловете</MudText>
+
+        <MudTable Items="_rows" Dense="true" Hover="true">
+            <HeaderContent>
+                <MudTh style="width:48px"></MudTh>
+                <MudTh>Файл</MudTh>
+                <MudTh style="width:120px" Align="Right">Размер</MudTh>
+                <MudTh style="width:160px">Приоритет</MudTh>
+            </HeaderContent>
+
+            <RowTemplate>
+                <MudTd>
+                    <MudCheckBox T="bool" @bind-Checked="context.Download" Immediate="true" />
+                </MudTd>
+                <MudTd>@context.Path</MudTd>
+                <MudTd Align="Right">@FormatSize(context.Length)</MudTd>
+                <MudTd>
+                    <MudSelect T="Priority" @bind-Value="context.Priority" Dense="true" Immediate="true">
+                        <MudSelectItem Value="Priority.DoNotDownload">Skip</MudSelectItem>
+                        <MudSelectItem Value="Priority.Low">Low</MudSelectItem>
+                        <MudSelectItem Value="Priority.Normal">Normal</MudSelectItem>
+                        <MudSelectItem Value="Priority.High">High</MudSelectItem>
+                    </MudSelect>
+                </MudTd>
+            </RowTemplate>
+
+            <NoRecordsContent>
+                <MudText Class="pa-4">Няма файлове.</MudText>
+            </NoRecordsContent>
+        </MudTable>
+    </DialogContent>
+
+    <DialogActions>
+        <MudButton Color="Color.Primary" OnClick="Apply">Приложи</MudButton>
+        <MudButton OnClick="Cancel">Откажи</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Inject] private ITorrentEngineService Engine { get; set; } = default!;
+
+    [Parameter] public required string InfoHash { get; set; }
+
+    private sealed class Row
+    {
+        public string Path { get; set; } = "";
+        public long Length { get; set; }
+        public bool Download { get; set; }
+        public Priority Priority { get; set; }
+    }
+
+    private List<Row> _rows = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var files = await Engine.GetFilesAsync(InfoHash);
+        _rows = files.Select(f => new Row
+        {
+            Path = f.Path,
+            Length = f.Length,
+            Download = f.Download,
+            Priority = f.Priority
+        }).ToList();
+    }
+
+    private async Task Apply()
+    {
+        var selection = _rows
+            .Where(r => r.Download)
+            .Select(r => new FileSelection { Path = r.Path, Download = true, Priority = r.Priority })
+            .ToList();
+
+        await Engine.UpdateSelectionAsync(InfoHash, selection, replace: true);
+
+        MudDialog.Close(DialogResult.Ok(true));
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private static string FormatSize(long bytes)
+    {
+        string[] u = { "B", "KB", "MB", "GB", "TB" }; double s = bytes; int i = 0;
+        while (s >= 1024 && i < u.Length - 1) { s /= 1024; i++; }
+        return $"{s:0.#} {u[i]}";
+    }
+}
