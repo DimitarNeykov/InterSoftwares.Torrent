@@ -26,6 +26,7 @@ namespace InterSoftwares.Torrent
             builder.Services.AddSingleton<ITorrentEngineService, TorrentEngineService>();
             builder.Services.AddSingleton<IUiReadyGate, UiReadyGate>();
             builder.Services.AddSingleton<TorrentOpenCoordinator>();
+            builder.Services.AddSingleton<MagnetActivationService>();
 
             builder.Services.AddHostedService<TorrentEngineBootstrapper>();
 #if DEBUG

@@ -6,7 +6,7 @@
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   IgnorableNamespaces="uap rescap">
 
-  <Identity Name="maui-package-name-placeholder" Publisher="CN=Contoso Software, O=Contoso Corporation, C=US" Version="1.0.18.0" />
+  <Identity Name="maui-package-name-placeholder" Publisher="CN=Contoso Software, O=Contoso Corporation, C=US" Version="1.2.8.0" />
 
   <mp:PhoneIdentity PhoneProductId="2897A4C8-819E-4BA1-97C7-5B649F9EA06A" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 

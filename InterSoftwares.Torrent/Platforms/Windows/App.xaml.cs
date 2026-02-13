@@ -13,8 +13,6 @@ namespace InterSoftwares.Torrent.WinUI
         public App()
         {
             InitializeComponent();
-
-            try { AppInstance.GetCurrent().Activated += OnAppActivated; } catch { }
         }
 
         protected override MauiApp CreateMauiApp()
@@ -24,23 +22,28 @@ namespace InterSoftwares.Torrent.WinUI
             return app;
         }
 
-        protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
+        protected override async void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
+            var current = AppInstance.GetCurrent();
+            var main = AppInstance.FindOrRegisterForKey("main");
+
+            if (!main.IsCurrent)
+            {
+                await main.RedirectActivationToAsync(current.GetActivatedEventArgs());
+                Environment.Exit(0);
+                return;
+            }
+
+            main.Activated += OnAppActivated;
+
             base.OnLaunched(args);
 
             _uiReady = true;
             _ = DrainPendingAsync();
 
-            var argv = Environment.GetCommandLineArgs();
-            if (argv.Length >= 2)
-            {
-                var arg = argv[1].Trim('"');
-                if (File.Exists(arg))
-                    EnqueueActivation(() => OpenTorrentsAsync(new[] { arg }));
-                else if (arg.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase))
-                    EnqueueActivation(() => OpenMagnetAsync(arg));
-            }
+            EnqueueActivation(() => DispatchActivationAsync(current.GetActivatedEventArgs()));
         }
+
 
         private void OnAppActivated(object? sender, AppActivationArguments e)
             => EnqueueActivation(() => DispatchActivationAsync(e));
@@ -56,7 +59,7 @@ namespace InterSoftwares.Torrent.WinUI
         {
             while (_uiReady && _pending.TryDequeue(out var action))
             {
-                await MainThread.InvokeOnMainThreadAsync(action);
+                await action();
             }
         }
 
@@ -77,7 +80,8 @@ namespace InterSoftwares.Torrent.WinUI
                         pae.Uri is not null &&
                         pae.Uri.Scheme.Equals("magnet", StringComparison.OrdinalIgnoreCase))
                     {
-                        await OpenMagnetAsync(pae.Uri.AbsoluteUri);
+                        var activation = MauiProgram.Services.GetRequiredService<MagnetActivationService>();
+                        await activation.RaiseMagnet(pae.Uri.AbsoluteUri);
                     }
                     break;
             }

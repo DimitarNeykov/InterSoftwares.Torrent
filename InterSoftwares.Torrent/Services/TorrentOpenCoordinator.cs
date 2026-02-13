@@ -63,7 +63,7 @@ namespace InterSoftwares.Torrent.Services
                         CloseOnEscapeKey = false,
                         BackdropClick = false,
                         MaxWidth = MaxWidth.Small,
-                        FullWidth = true
+                        FullWidth = true,
                     });
             });
 

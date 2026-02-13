@@ -9,6 +9,7 @@
 @inject IDialogService Dialogs
 @inject ISnackbar Snackbar
 @inject TorrentOpenCoordinator OpenCoordinator
+@inject MagnetActivationService MagnetActivation
 
 <MudStack Spacing="2">
     <MudPaper Elevation="0" Class="pa-3 d-flex justify-end">
@@ -64,9 +65,11 @@
     private List<TorrentItemDto> _items = new();
     private PeriodicTimer? _uiTimer;
     private CancellationTokenSource? _cts;
+    private readonly SemaphoreSlim _magnetGate = new(1, 1);
 
     protected override async Task OnInitializedAsync()
     {
+        MagnetActivation.MagnetReceived += OnMagnetReceived;
         await Engine.InitializeAsync();
         Refresh();
 
@@ -140,6 +143,25 @@
             return;
 
         await OpenCoordinator.OpenMagnetAsync(magnet);
+    }
+
+    private async Task OnMagnetReceived(string magnet)
+    {
+        await _magnetGate.WaitAsync();
+        try
+        {
+            // ВАЖНО: да влезем в Blazor synchronization context + 1 render tick
+            await InvokeAsync(async () =>
+            {
+                await Task.Yield();
+                await Task.Delay(50); // кратко, само да мине close/open транзиция
+                await OpenCoordinator.OpenMagnetAsync(magnet);
+            });
+        }
+        finally
+        {
+            _magnetGate.Release();
+        }
     }
 
     private async Task Pause(TorrentItemDto dto) { await Engine.PauseAsync(dto.InfoHash); Refresh(); }
