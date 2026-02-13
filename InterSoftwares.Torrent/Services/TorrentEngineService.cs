@@ -16,6 +16,8 @@
         Task StopAsync(string infoHash);
         Task RemoveAsync(string infoHash, bool removeData = false);
         Task UpdateSelectionAsync(string infoHash, IList<FileSelection> selection, bool replace = true);
+        Task<Torrent> DownloadMetadataAsync(string magnet, CancellationToken ct = default);
+        Task<TorrentItemDto> AddMagnetAsync(string magnet, string savePath, IList<FileSelection>? selection = null);
         Task<IReadOnlyList<TorrentFileEntry>> GetFilesAsync(string infoHash);
     }
 
@@ -225,6 +227,116 @@
             await PersistIndexAsync();
 
             static void TryDelete(string p) { try { if (File.Exists(p)) File.Delete(p); } catch { } }
+        }
+
+        public async Task<Torrent> DownloadMetadataAsync(string magnet, CancellationToken ct = default)
+        {
+            var ml = MagnetLink.Parse(magnet);
+
+            // savePath тук е "временен" - важното е да получим metadata
+            var mgr = await _engine.AddAsync(
+                ml,
+                Paths.MetadataCacheDir,
+                new TorrentSettingsBuilder
+                {
+                    UploadSlots = 0,
+                    MaximumConnections = 30
+                }.ToSettings());
+
+            await mgr.StartAsync();
+
+            // Чакаме да пристигне metadata (Torrent да стане не-null)
+            while (mgr.Torrent is null)
+            {
+                ct.ThrowIfCancellationRequested();
+                await Task.Delay(250, ct);
+            }
+
+            var t = mgr.Torrent;
+
+            // Спираме и махаме мениджъра - това НЕ е реалното добавяне
+            try { await mgr.StopAsync(); } catch { }
+            try { await _engine.RemoveAsync(mgr); } catch { }
+
+            return t;
+        }
+
+        public async Task<TorrentItemDto> AddMagnetAsync(string magnet, string savePath, IList<FileSelection>? selection = null)
+        {
+            var ml = MagnetLink.Parse(magnet);
+
+            var mgr = await _engine.AddAsync(
+                ml,
+                savePath,
+                new TorrentSettingsBuilder
+                {
+                    UploadSlots = 8,
+                    MaximumConnections = 60
+                }.ToSettings());
+
+            // Същия handler като в CreateManagerAsync
+            mgr.TorrentStateChanged += async (_, e) =>
+            {
+                try
+                {
+                    if (e.NewState == TorrentState.Stopped || e.NewState == TorrentState.Error)
+                        await SaveFastResumeAsync(mgr);
+                    await PersistIndexAsync();
+                }
+                catch { }
+            };
+
+            await TryLoadFastResumeAsync(mgr);
+
+            await mgr.StartAsync();
+
+            // Изчакваме metadata, за да можем да зададем приоритети по файлове
+            while (mgr.Torrent is null)
+                await Task.Delay(250);
+
+            static string N(string p) => p.Replace('\\', '/');
+
+            // По твоята логика: default всичко DoNotDownload
+            foreach (var file in mgr.Files)
+                await mgr.SetFilePriorityAsync(file, Priority.DoNotDownload);
+
+            if (selection is not null && selection.Count > 0)
+            {
+                var wanted = new HashSet<string>(
+                    selection.Where(s => s.Download).Select(s => N(s.Path)),
+                    StringComparer.OrdinalIgnoreCase);
+
+                foreach (var f in mgr.Files)
+                {
+                    if (wanted.Contains(N(f.Path)))
+                    {
+                        var sel = selection.First(s =>
+                            string.Equals(N(s.Path), N(f.Path), StringComparison.OrdinalIgnoreCase));
+
+                        await mgr.SetFilePriorityAsync(f, sel.Priority);
+                    }
+                }
+            }
+
+            await SaveFastResumeAsync(mgr);
+
+            var infoHash = mgr.InfoHashes.V1OrV2.ToHex();
+            var name = mgr.Torrent?.Name ?? ml.Name ?? infoHash;
+
+            var dto = new TorrentItemDto
+            {
+                InfoHash = infoHash,
+                Name = name,
+                TorrentPath = "", // при magnet може да е празно, или ако искаш да запишем .torrent по-долу ще ти кажа
+                SavePath = savePath,
+                TotalSize = mgr.Torrent?.Files.Sum(f => (long)f.Length) ?? 0,
+                Status = "Downloading",
+                Paused = false
+            };
+
+            _items[dto.InfoHash] = (mgr, dto);
+            await PersistIndexAsync();
+            return dto;
         }
 
         private async Task<TorrentManager> CreateManagerAsync(Torrent torrent, string savePath)

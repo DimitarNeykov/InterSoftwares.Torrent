@@ -1,0 +1,51 @@
+@using MudBlazor
+
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.subtitle1">Magnet link</MudText>
+
+        <MudTextField @bind-Value="_magnet"
+                      Label="Paste magnet link"
+                      Placeholder="magnet:?xt=urn:btih:..."
+                      Variant="Variant.Outlined"
+                      Immediate="true"
+                      Lines="3"
+                      AutoGrow="true"
+                      Required="true"
+                      RequiredError="Magnet link is required."
+                      Validation="ValidateMagnet" />
+    </DialogContent>
+
+    <DialogActions>
+        <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Ok" Disabled="@(!_isValid)">
+            Add
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public IMudDialogInstance MudDialog { get; set; } = default!;
+
+    private string _magnet = string.Empty;
+    private bool _isValid;
+
+    private string? ValidateMagnet(string value)
+    {
+        _isValid = !string.IsNullOrWhiteSpace(value)
+                   && value.TrimStart().StartsWith("magnet:?", StringComparison.OrdinalIgnoreCase);
+
+        return _isValid ? null : "Invalid magnet link.";
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private void Ok()
+    {
+        var magnet = _magnet?.Trim();
+        if (string.IsNullOrWhiteSpace(magnet))
+            return;
+
+        MudDialog.Close(DialogResult.Ok(magnet));
+    }
+}

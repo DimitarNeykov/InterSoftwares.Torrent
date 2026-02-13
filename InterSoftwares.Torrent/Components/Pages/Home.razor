@@ -8,11 +8,15 @@
 @inject ITorrentEngineService Engine
 @inject IDialogService Dialogs
 @inject ISnackbar Snackbar
+@inject TorrentOpenCoordinator OpenCoordinator
 
 <MudStack Spacing="2">
     <MudPaper Elevation="0" Class="pa-3 d-flex justify-end">
         <MudButton Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.Add" Color="Color.Primary" OnClick="AddTorrent">
             Добави торент…
+        </MudButton>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Link" Class="ml-2" OnClick="AddMagnet">
+            Добави magnet…
         </MudButton>
     </MudPaper>
 
@@ -115,6 +119,27 @@
         var item = await Engine.AddTorrentAsync(torrentPath, savePath!, selection);
         Snackbar.Add($"Добавен: {item.Name}", Severity.Success);
         Refresh();
+    }
+
+    private async Task AddMagnet()
+    {
+        var options = new DialogOptions
+        {
+            CloseOnEscapeKey = true,
+            MaxWidth = MaxWidth.Medium,
+            FullWidth = true
+        };
+
+        var dialog = await Dialogs.ShowAsync<InterSoftwares.Torrent.Components.Pages.Components.MagnetDialog>("Add magnet", options);
+        var result = await dialog.Result;
+
+        if (result.Canceled)
+            return;
+
+        if (result.Data is not string magnet || string.IsNullOrWhiteSpace(magnet))
+            return;
+
+        await OpenCoordinator.OpenMagnetAsync(magnet);
     }
 
     private async Task Pause(TorrentItemDto dto) { await Engine.PauseAsync(dto.InfoHash); Refresh(); }
